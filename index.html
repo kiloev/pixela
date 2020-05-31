@@ -77,6 +77,10 @@
     width: 100%;
   }
 
+  #canvas {
+    cursor: pointer;
+  }
+
   @media only screen and (min-width: 480px) {
     .col.one {
       width: 50%;
@@ -130,7 +134,7 @@
       <img id="image" class="preview"/>
     </div>
     <div class="col one">
-      <canvas id="canvas" class="preview" height="0"></canvas>
+      <canvas id="canvas" class="preview" height="0" title="Click to download"></canvas>
     </div>
   </div>
 </div>
@@ -149,7 +153,7 @@
     const ctx = canvas.getContext('2d');
     const bufferCanvas = document.createElement('canvas');
     const bufferCtx = bufferCanvas.getContext('2d');
-    // const divSize = Math.floor(TARGET_WIDTH / DIV_COL_COUNT / 2) * 2 + 1;
+    const link = document.createElement('a');
 
     // Helpers
     const getTypeCoords = (divSize) => {
@@ -312,6 +316,11 @@
     count.onchange = process;
     type.onchange = process;
     image.onload = process;
+    canvas.onclick = () => {
+      link.href = canvas.toDataURL('image/jpeg');
+      link.download = 'Pixela.jpg';
+      link.click();
+    };
   })();
 </script>
 </body>
