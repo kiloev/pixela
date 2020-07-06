@@ -97,6 +97,11 @@
       <h2 class="subtitle">Convert your image to triangle-mosaics!</h2>
       <div class="control">
         <div class="control-item">
+          <label class="control-label" for="file">Image file:</label>
+          <input id="file" type="file" accept="image/jpeg"/>
+          <label class="btn" for="file">Choose file</label>
+        </div>
+        <div class="control-item">
           <label class="control-label" for="count">Division count:</label>
           <select id="count">
             <option value="30">30</option>
@@ -120,11 +125,6 @@
             <option value="2" selected>2</option>
             <option value="4">4</option>
           </select>
-        </div>
-        <div class="control-item">
-          <label class="control-label" for="file">Image file:</label>
-          <input id="file" type="file" accept="image/jpeg"/>
-          <label class="btn" for="file">Choose file</label>
         </div>
       </div>
     </div>
