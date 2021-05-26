@@ -94,7 +94,7 @@
   <div class="row">
     <div class="col two">
       <h1 class="title">Pixela</h1>
-      <h2 class="subtitle">Convert your image to triangle-mosaics!</h2>
+      <h2 class="subtitle">Convert your images to triangle-mosaics!</h2>
       <div class="control">
         <div class="control-item">
           <label class="control-label" for="file">Image file:</label>
@@ -143,183 +143,180 @@
   (() => {
     // Constants
     const TARGET_DIMENSION = 2000;
+    const PROCESS_PIXEL_EVERY = 3;
+
+    // DOM Elements
+    const fileElm = document.getElementById('file');
+    const countElm = document.getElementById('count');
+    const typeElm = document.getElementById('type');
+    const imageElm = document.getElementById('image');
+    const canvasElm = document.getElementById('canvas');
 
     // Variables
-    const form = document.getElementById('form');
-    const file = document.getElementById('file');
-    const count = document.getElementById('count');
-    const image = document.getElementById('image');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const bufferCanvas = document.createElement('canvas');
-    const bufferCtx = bufferCanvas.getContext('2d');
-    const link = document.createElement('a');
+    const ctx = canvasElm.getContext('2d');
+    const bufferCanvasElm = document.createElement('canvas');
+    const bufferCtx = bufferCanvasElm.getContext('2d');
+    const linkElm = document.createElement('a');
 
     // Helpers
-    const getTypeCoords = (divSize) => {
-      const result = {
-        top: [],
-        right: [],
-        bottom: [],
-        left: [],
-        middle: [],
-        topRight: [],
-        rightBottom: [],
-        bottomLeft: [],
-        leftTop: []
-      };
-
+    const getTypeMap = (divSize) => {
       const getType = (x, y) => {
         const xInverse = divSize - x - 1;
-
-        if (x === y && xInverse === y) return 'middle';
-        if (x === y) return xInverse > y ? 'leftTop' : 'rightBottom';
-        if (xInverse === y) return x > y ? 'topRight' : 'bottomLeft';
-
-        if (x > y) return xInverse > y ? 'top' : 'right';
-        return xInverse > y ? 'left' : 'bottom';
+        if (x === y && xInverse === y) return 'm';
+        if (x === y) return xInverse > y ? 'tl' : 'br';
+        if (xInverse === y) return x > y ? 'tr' : 'bl';
+        if (x > y) return xInverse > y ? 't' : 'r';
+        return xInverse > y ? 'l' : 'b';
       };
 
+      const result = {};
       for (let x = 0; x < divSize; x++) {
         for (let y = 0; y < divSize; y++) {
-          result[getType(x, y)].push([x, y]);
+          const type = getType(x, y);
+          result[type] = result[type] || [];
+          result[type].push([x, y]);
         }
       }
       return result;
     };
+    const getDataIndex = (coordOffset, coord) => {
+      const x = coordOffset[0] + coord[0];
+      const y = coordOffset[1] + coord[1];
+      const indexR = (x + y * canvasElm.width) * 4;
+      const indexG = indexR + 1;
+      const indexB = indexG + 1;
+      const indexA = indexB + 1;
+      return [indexR, indexG, indexB, indexA];
+    }
     const getColors = (imgData, coordOffset, coords) => {
-      return coords.map((coord) => {
-        const x = coordOffset[0] + coord[0];
-        const y = coordOffset[1] + coord[1];
-        const indexOffset = (x + y * canvas.width) * 4;
-        return [imgData.data[indexOffset], imgData.data[indexOffset + 1], imgData.data[indexOffset + 2]];
+      // Optimize by not processing every pixel
+      return coords.filter((coord, index) => index % PROCESS_PIXEL_EVERY === 0).map((coord) => {
+        const index = getDataIndex(coordOffset, coord);
+        return [imgData.data[index[0]], imgData.data[index[1]], imgData.data[index[2]]];
       });
     };
-    const avgColors = (colors) => (
-      colors
-        .reduce((acc, color) => {
-          for (let i = 0; i < 3; i++) {
-            acc[i] += (color[i] ** 2) / colors.length;
-          }
-          return acc;
-        }, [0, 0, 0])
-        .map(Math.sqrt)
-    );
-    const colorDistance = (color1, color2) => (
-      Math.sqrt((color1[0] - color2[0]) ** 2 + (color1[1] - color2[1]) ** 2 + (color1[2] - color2[2]) ** 2)
-    );
-    const fillCoords = (imgData, coordOffset, coords, color) => {
-      coords.forEach((coord) => {
-        const x = coordOffset[0] + coord[0];
-        const y = coordOffset[1] + coord[1];
-        const indexOffset = (x + y * canvas.width) * 4;
-        imgData.data[indexOffset] = color[0];
-        imgData.data[indexOffset + 1] = color[1];
-        imgData.data[indexOffset + 2] = color[2];
-        imgData.data[indexOffset + 3] = 255;
-      });
+    const fillColor = (imgData, coordOffset, typeMap, colors) => {
+      for (const type in typeMap) {
+        const color = colors[type];
+        typeMap[type].forEach((coord) => {
+          const index = getDataIndex(coordOffset, coord);
+          imgData.data[index[0]] = color[0];
+          imgData.data[index[1]] = color[1];
+          imgData.data[index[2]] = color[2];
+          imgData.data[index[3]] = 255;
+        });
+      }
     };
+    const avgColor = (colors) => colors
+      .reduce((acc, color) => {
+        acc[0] += color[0] ** 2;
+        acc[1] += color[1] ** 2;
+        acc[2] += color[2] ** 2;
+        return acc;
+      }, [0, 0, 0])
+      .map((value) => Math.sqrt(value / colors.length));
+    const distColor = (color1, color2) => Math.sqrt(
+      (color1[0] - color2[0]) ** 2 +
+      (color1[1] - color2[1]) ** 2 +
+      (color1[1] - color2[1]) ** 2);
     const process = () => {
-      if (!image.src) return;
+      if (!imageElm.src) return;
 
-      // Division dimensions
-      const divCount = Math.floor(count.value);
-      const unscaledDivSize = Math.floor(Math.sqrt(image.naturalWidth * image.naturalHeight / divCount));
-      const divColCount = Math.floor(image.naturalWidth / unscaledDivSize);
-      const divRowCount = Math.floor(image.naturalHeight / unscaledDivSize);
-      const imageRatio = image.naturalWidth / image.naturalHeight;
-      const divSize = Math.floor(imageRatio > 1 ? (TARGET_DIMENSION / divColCount) : (TARGET_DIMENSION / divRowCount));
+      // User options
+      const divCount = Math.floor(countElm.value);
+      const simplify = typeElm.value === '2';
 
-      // Scaling ratio
-      const divRatio = divColCount / divRowCount;
-      const scale = imageRatio > divRatio ? (divRowCount * divSize / image.naturalHeight) : (divColCount * divSize / image.naturalWidth);
-      const scaledWidth = Math.floor(image.naturalWidth * scale);
-      const scaledHeight = Math.floor(image.naturalHeight * scale);
+      // Image properties
+      const imgWidth = imageElm.naturalWidth;
+      const imgHeight = imageElm.naturalHeight;
+      const imgRatio = imgWidth / imgHeight;
+      const imgArea = imgWidth * imgHeight;
 
-      console.log({unscaledDivSize, divColCount, divRowCount, imageRatio, divSize, divRatio, scale, scaledWidth, scaledHeight});
+      // Div dimensions
+      const oriDivSize = Math.floor(Math.sqrt(imgArea / divCount));
+      const divColCount = Math.floor(imgWidth / oriDivSize);
+      const divRowCount = Math.floor(imgHeight / oriDivSize);
+      const divSize = Math.floor(imgRatio > 1 ? (TARGET_DIMENSION / divColCount) : (TARGET_DIMENSION / divRowCount));
 
-      // Cropping boundaries
-      const resultWidth = scaledWidth - (scaledWidth % divSize);
-      const resultHeight = scaledHeight - (scaledHeight % divSize);
-      const x = Math.floor((scaledWidth - resultWidth) / 2);
-      const y = Math.floor((scaledHeight - resultHeight) / 2);
+      // Result properties
+      const resultWidth = divColCount * divSize;
+      const resultHeight = divRowCount * divSize;
+      const resultRatio = resultWidth / resultHeight;
 
-      // Resize in buffer canvas
-      bufferCanvas.width = image.naturalWidth;
-      bufferCanvas.height = image.naturalHeight;
-      bufferCtx.drawImage(image, 0, 0, bufferCanvas.width, bufferCanvas.height, 0, 0, scaledWidth, scaledHeight);
+      // Scale into buffer canvas
+      const scale = resultRatio > imgRatio ? (resultWidth / imgWidth) : (resultHeight / imgHeight);
+      const imgScaledWidth = Math.floor(imgWidth * scale);
+      const imgScaledHeight = Math.floor(imgHeight * scale);
+      bufferCanvasElm.width = imgScaledWidth;
+      bufferCanvasElm.height = imgScaledHeight;
+      bufferCtx.drawImage(image, 0, 0, imgWidth, imgHeight, 0, 0, imgScaledWidth, imgScaledHeight);
 
       // Crop into output canvas
-      canvas.width = resultWidth;
-      canvas.height = resultHeight;
-      ctx.drawImage(bufferCanvas, x, y, resultWidth, resultHeight, 0, 0, resultWidth, resultHeight);
+      const x = Math.floor((imgScaledWidth - resultWidth) / 2);
+      const y = Math.floor((imgScaledHeight - resultHeight) / 2);
+      canvasElm.width = resultWidth;
+      canvasElm.height = resultHeight;
+      ctx.drawImage(bufferCanvasElm, x, y, resultWidth, resultHeight, 0, 0, resultWidth, resultHeight);
 
-      // Get image data and type coords
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const typeCoords = getTypeCoords(divSize);
+      // Get image data and type map
+      const imgData = ctx.getImageData(0, 0, resultWidth, resultHeight);
+      const typeMap = getTypeMap(divSize);
 
       // Run through divisions
-      const simplify = type.value === '2';
       for (let i = 0; i < divColCount; i++) {
         for (let j = 0; j < divRowCount; j++) {
           const coordOffset = [i * divSize, j * divSize];
 
-          let topColor = avgColors(getColors(imgData, coordOffset, typeCoords.top));
-          let rightColor = avgColors(getColors(imgData, coordOffset, typeCoords.right));
-          let bottomColor = avgColors(getColors(imgData, coordOffset, typeCoords.bottom));
-          let leftColor = avgColors(getColors(imgData, coordOffset, typeCoords.left));
-          let middleColor = avgColors([topColor, rightColor, bottomColor, leftColor]);
-          let topRightColor = avgColors([topColor, rightColor]);
-          let rightBottomColor = avgColors([rightColor, bottomColor]);
-          let bottomLeftColor = avgColors([bottomColor, leftColor]);
-          let leftTopColor = avgColors([leftColor, topColor]);
+          const colors = {
+            t: avgColor(getColors(imgData, coordOffset, typeMap.t)),
+            r: avgColor(getColors(imgData, coordOffset, typeMap.r)),
+            b: avgColor(getColors(imgData, coordOffset, typeMap.b)),
+            l: avgColor(getColors(imgData, coordOffset, typeMap.l))
+          };
+          colors.m = avgColor([colors.t, colors.r, colors.b, colors.l]);
+          colors.tr = avgColor([colors.t, colors.r]);
+          colors.tl = avgColor([colors.t, colors.l]);
+          colors.br = avgColor([colors.b, colors.r]);
+          colors.bl = avgColor([colors.b, colors.l]);
 
+          // From 4 to 2 triangles per div
           if (simplify) {
-            // Hard to name these!
-            const ltToRbDistance = colorDistance(leftTopColor, rightBottomColor);
-            const trToBlDistance = colorDistance(topRightColor, bottomLeftColor);
-            if (ltToRbDistance > trToBlDistance) {
-              leftColor = topColor = leftTopColor;
-              rightColor = bottomColor = rightBottomColor;
-              topRightColor = bottomLeftColor = middleColor;
+            const distanceTrBl = distColor(colors.tr, colors.bl);
+            const distanceTlBr = distColor(colors.tl, colors.br);
+            if (distanceTrBl < distanceTlBr) {
+              colors.t = colors.l = colors.tl;
+              colors.b = colors.r = colors.br;
+              colors.tr = colors.bl = colors.m;
             } else {
-              topColor = rightColor = topRightColor;
-              bottomColor = leftColor = bottomLeftColor;
-              leftTopColor = rightBottomColor = middleColor;
+              colors.t = colors.r = colors.tr;
+              colors.b = colors.l = colors.bl;
+              colors.tl = colors.br = colors.m;
             }
           }
 
-          fillCoords(imgData, coordOffset, typeCoords.top, topColor);
-          fillCoords(imgData, coordOffset, typeCoords.right, rightColor);
-          fillCoords(imgData, coordOffset, typeCoords.bottom, bottomColor);
-          fillCoords(imgData, coordOffset, typeCoords.left, leftColor);
-          fillCoords(imgData, coordOffset, typeCoords.middle, middleColor);
-          fillCoords(imgData, coordOffset, typeCoords.topRight, topRightColor);
-          fillCoords(imgData, coordOffset, typeCoords.rightBottom, rightBottomColor);
-          fillCoords(imgData, coordOffset, typeCoords.bottomLeft, bottomLeftColor);
-          fillCoords(imgData, coordOffset, typeCoords.leftTop, leftTopColor);
+          fillColor(imgData, coordOffset, typeMap, colors);
         }
       }
       ctx.putImageData(imgData, 0, 0);
     };
 
     // Events
-    file.onchange = () => {
-      if (!file.files || !file.files[0]) return;
+    fileElm.onchange = () => {
+      if (!fileElm.files || !fileElm.files[0]) return;
 
       const reader = new FileReader();
       reader.onload = (e) => {
-        image.src = e.target.result;
+        imageElm.src = e.target.result;
       };
-      reader.readAsDataURL(file.files[0]);
+      reader.readAsDataURL(fileElm.files[0]);
     };
-    count.onchange = process;
-    type.onchange = process;
-    image.onload = process;
-    canvas.onclick = () => {
-      link.href = canvas.toDataURL('image/jpeg');
-      link.download = 'Pixela.jpg';
-      link.click();
+    countElm.onchange = process;
+    typeElm.onchange = process;
+    imageElm.onload = process;
+    canvasElm.onclick = () => {
+      linkElm.href = canvasElm.toDataURL('image/jpeg');
+      linkElm.download = 'Pixela.jpg';
+      linkElm.click();
     };
   })();
 </script>
